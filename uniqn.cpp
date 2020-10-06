@@ -1,7 +1,9 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <limits>
+#include <algorithm>
 
 static const std::size_t MAXCHARS = 32; // per word
 static const std::string EMPTY = " ";
@@ -62,8 +64,8 @@ struct Phrase
   void push(unsigned word) {
     m_value = ((m_value << WSIZE) | (value_t(word) & WMASK)) & mask(WMAX);
   }
-  bool empty() const {
-    return 0 == m_value;
+  value_t value() const {
+    return m_value;
   }
   Phrase(value_t value = 0)
     : m_value(value)
@@ -150,10 +152,16 @@ struct Statistics
     current << 0;
     m_table[current.key(0)] += 1;
   }
-  template<typename Func = void(unsigned, Phrase, Dictionary const&)>
+  template<typename Func = void(unsigned, Phrase)>
   void for_each(Func const& func) {
     for (auto const& item : m_table)
-      func(item.second, Phrase(item.first), m_dictionary);
+      func(item.second, Phrase(item.first));
+  }
+  Dictionary const& dictionary() const {
+    return m_dictionary;
+  }
+  std::size_t size() const {
+    return m_table.size();
   }
 private:
   using table = std::unordered_map<uint64_t, unsigned>;
@@ -162,12 +170,31 @@ private:
   table m_table;
 };
 
+struct Result
+{
+  Phrase phrase;
+  unsigned count;
+};
+bool operator<(Result const& left, Result const& right) {
+  return left.count == right.count ?
+    left.phrase.value() < right.phrase.value()
+    : left.count > right.count;
+}
+
 int main()
 {
   Statistics stat;
   stat.process(std::cin);
-
-  stat.for_each([](unsigned count, Phrase phrase, Dictionary const& dict) {
-    std::cout << count << ": " << print(dict, phrase) << std::endl;
+  
+  std::vector<Result> data;
+  data.reserve(stat.size());
+  stat.for_each([&data](unsigned count, Phrase phrase) {
+     data.emplace_back(Result{phrase, count});
   });
+
+  std::sort(data.begin(), data.end());
+  for (auto value : data) {
+    std::cout << value.count
+      << ": " << print(stat.dictionary(), value.phrase) << std::endl;
+  }
 }
