@@ -3,104 +3,183 @@
 #include <unordered_map>
 
 static const std::size_t MAXCHARS = 32; // per word
+static const std::string EMPTY = " ";
 
-struct dictionary
+struct Dictionary
 {
-  using table = std::unordered_map<std::string, unsigned>;
-  using rtable = std::unordered_map<unsigned, std::string>;
-  
-  uint16_t put(std::string const& word) {
-    auto i = m_table.find(word);
-    if (m_table.end() == i) {
-      m_table.emplace(word, ++m_count);
-      m_rtable.emplace(m_count, word);
-      return m_count;
-    }
-    return i->second;
+  using index_type = unsigned;
+  using dtable = std::unordered_map<std::string, index_type>;
+  using rtable = std::unordered_map<index_type, std::string>;
+
+  index_type index_of(std::string const& word) {
+    auto i = m_dtable.find(word);
+    if (m_dtable.end() != i)
+      return i->second;
+
+    return put(word);
   }
-  std::string const& get(uint16_t index) {
+  std::string const& get(index_type index) {
     return m_rtable[index];
   }
+  Dictionary() {
+    put(EMPTY);
+  }
 private:
-  table m_table;
+  index_type put(std::string const& word) {
+    index_type current = m_count++;
+    m_dtable.emplace(word, current);
+    m_rtable.emplace(current, word);
+    return current;
+  }
+  dtable m_dtable;
   rtable m_rtable;  
-  uint16_t m_count = 0;
+  index_type m_count = 0;
 };
 
-struct phrase
+struct Phrase
 {
-  static constexpr unsigned SHIFT = 16;
-  static constexpr uint64_t MASK = (uint64_t(1) << SHIFT) - 1;
-  static constexpr unsigned MAX = 1;
+  // msb: [wordN][wordN+1][wordN+2]
+  static constexpr unsigned WSIZE = 16; // bits
+  static constexpr uint64_t WMASK = (uint64_t(1) << WSIZE) - 1;
+  static constexpr unsigned SIZE = 3; // words
+  static constexpr unsigned MAX = SIZE - 1;
 
-  static constexpr uint64_t upshift(unsigned i) {
-    return (SHIFT * (i + 1));
+  uint64_t key(unsigned i) const {
+    return (m_value >> downshift(i)) & mask(i);
   }
-  static constexpr uint64_t downshift(unsigned i) {
-    return (SHIFT * i);
-  }  
-  static constexpr uint64_t upmask(unsigned i) {
-    return (uint64_t(1) << upshift(i)) - 1; 
+  unsigned word(unsigned i) const {
+    return static_cast<unsigned>((m_value >> downshift(i)) & WMASK);
   }
-  uint64_t key(unsigned i) {
-    return m_value & upmask(i);
+  void push(unsigned word) {
+    m_value = ((m_value << WSIZE) | (uint64_t(word) & WMASK)) & mask(MAX);
   }
-  uint16_t word(unsigned i) {
-    return static_cast<uint16_t>((m_value >> downshift(i)) & MASK);
-  }  
-  void put(uint16_t word) {
-    m_value = (m_value >> SHIFT) | (uint64_t(word) << upshift(1));
-  }  
-  phrase(uint64_t value = 0)
+  bool empty() const {
+    return 0 == m_value;
+  }
+  Phrase(uint64_t value = 0)
     : m_value(value)
   {
-    static_assert(upshift(0) == 16);
-    static_assert(upshift(1) == 32);
-    static_assert(upshift(2) == 48);
-
-    static_assert(mask(0) == 0xffff);
-    static_assert(mask(1) == 0xffffffff);
-    static_assert(mask(2) == 0xffffffffffff);
   }
 private:
+  static constexpr uint64_t upshift(unsigned i) {
+    return (WSIZE * (i + 1));
+  }
+  static constexpr uint64_t downshift(unsigned i) {
+    return (WSIZE * (SIZE - (i + 1)));
+  }
+  static constexpr uint64_t mask(unsigned i) {
+    return (uint64_t(1) << upshift(i)) - 1; 
+  }
   uint64_t m_value = 0;
 };
 
-int main()
+struct PrintPhrase
 {
-  dictionary dict;
-  phrase phr;
+  PrintPhrase(Dictionary const& dict, Phrase const& p)
+    : dictionary(dict), value(p) {}
+  
+  Dictionary dictionary;
+  Phrase value;
+};
+PrintPhrase print(Dictionary const& dict, Phrase const& p) {
+  return PrintPhrase(dict, p);
+}
+
+std::ostream& operator<<(std::ostream& out, PrintPhrase p) {
+  for (unsigned index = 0; index < Phrase::SIZE; ++index) {
+      uint16_t word = p.value.word(index);
+      out << (0 != word ? p.dictionary.get(word) : EMPTY) <<  " ";
+  }
+  return out;
+}
+
+struct Statistics
+{
+  using table = std::unordered_map<uint64_t, unsigned>;
+
+  void process(std::istream& stream) {
+    std::string word;
+    word.reserve(MAXCHARS);
+
+    Phrase current;
+    std::getline(std::cin, word); 
+    auto index = m_dictionary.index_of(word);
+  }
+private:
+  Dictionary m_dictionary;
+  table m_table;
+};
+
+int main__()
+{
+  Dictionary dict;
+  Phrase phr;
 
   std::string word;
   word.reserve(MAXCHARS);
-  
-  if (std::cin.eof()) return 1;
-  std::getline(std::cin, word);
-  phr.put(dict.put(word));
-
-  if (std::cin.eof()) return 2;
-  std::getline(std::cin, word);  
-  phr.put(dict.put(word));
 
   using statable = std::unordered_map<uint64_t, unsigned>;
   statable stat;
   
-  while(!std::cin.eof()) {
+  do {
     std::getline(std::cin, word);
-    phr.put(dict.put(word));
+
+    phr.push(dict.index_of(word));
 
     stat[phr.key(0)] += 1;
     stat[phr.key(1)] += 1;
-    stat[phr.key(2)] += 1;    
-  }
+    stat[phr.key(2)] += 1;
+  } while(!phr.empty());
+
   for (auto const& item : stat) {
-    phrase uniq(item.first);
-    for (unsigned w = 0; w < 3; ++w) {
-      uint16_t index = uniq.word(w);
-      if (0 != index)
-	std::cout << dict.get(index) <<  " ";
-    }
-    std::cout << item.second << std::endl;
+    Phrase uniq(item.first);
+    std::cout << item.second << ": "
+      << print(dict, Phrase(item.first)) << std::endl;
+  }
+  return 0;
+}
+
+
+int main()
+{
+  Dictionary dict;
+  Phrase phr;
+
+  std::string word;
+  word.reserve(MAXCHARS);
+
+  if (std::cin.eof()) return 1;
+  std::getline(std::cin, word);
+  phr.push(dict.index_of(word));
+
+  if (std::cin.eof()) return 2;
+  std::getline(std::cin, word);  
+  phr.push(dict.index_of(word));
+
+  using statable = std::unordered_map<uint64_t, unsigned>;
+  statable stat;
+
+  while (!std::cin.eof()) {
+    std::getline(std::cin, word);
+    // std::cout << word << std::endl;
+    phr.push(dict.index_of(word));
+
+    stat[phr.key(0)] += 1;
+    stat[phr.key(1)] += 1;
+    stat[phr.key(2)] += 1;
+  }
+
+  phr.push(0);
+  stat[phr.key(0)] += 1;
+  stat[phr.key(1)] += 1;
+
+  phr.push(0);
+  stat[phr.key(0)] += 1;
+
+  for (auto const& item : stat) {
+    Phrase uniq(item.first);
+    std::cout << item.second << ": "
+      << print(dict, Phrase(item.first)) << std::endl;
   }
   return 0;
 }
