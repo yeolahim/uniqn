@@ -32,7 +32,7 @@ struct Dictionary
         break;
       add(word);
     }
-  }  
+  }
   index_t put(std::string const& word) {
     auto i = m_dtable.find(word);
     if (m_dtable.end() != i)
@@ -220,6 +220,7 @@ Statistics::Ptr prepare(int argc, char const* argv[]) {
       for (auto const& value : data)
         std::cout << value << std::endl;
 
+      // don't need statistics
       return nullptr;
     } else {
       // load sorted dictionary, read from file
@@ -241,7 +242,7 @@ struct Result
 };
 bool operator<(Result const& left, Result const& right) {
   return left.count == right.count ?
-    left.phrase.value() < right.phrase.value()
+    left.phrase.value() > right.phrase.value()
     : left.count > right.count;
 }
 
@@ -250,7 +251,7 @@ int main(int argc, char const* argv[])
   Statistics::Ptr stat = prepare(argc, argv);
   if (!stat)
     return 0;
-  
+
   stat->process(std::cin);
   
   std::vector<Result> data;
