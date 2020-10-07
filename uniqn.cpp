@@ -1,7 +1,9 @@
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <memory>
 #include <limits>
 #include <algorithm>
 
@@ -14,6 +16,23 @@ struct Dictionary
   using dtable = std::unordered_map<std::string, index_t>;
   using rtable = std::unordered_map<index_t, std::string>;
 
+  Dictionary()
+  {
+    add(std::string());
+  }
+  Dictionary(std::istream& stream)
+    : Dictionary()
+  {
+    std::string word;
+    word.reserve(MAXCHARS);
+
+    while(!stream.eof()) {
+      std::getline(stream, word);
+      if (word.empty())
+        break;
+      add(word);
+    }
+  }  
   index_t put(std::string const& word) {
     auto i = m_dtable.find(word);
     if (m_dtable.end() != i)
@@ -24,9 +43,13 @@ struct Dictionary
   std::string const& get(index_t index) const {
     return m_rtable.at(index);
   }
-  Dictionary()
-  {
-    add(std::string());
+  template<typename Func = void(std::string const&)>
+  void for_each(Func const& func) const {
+    for (auto const& item : m_dtable)
+      func(item.first);
+  }
+  std::size_t size() const {
+    return m_dtable.size();
   }
 private:
   index_t add(std::string const& word) {
@@ -83,6 +106,11 @@ private:
   value_t m_value = 0;
 };
 
+bool operator<<(Phrase& phrase, Phrase::index_t index) {
+  phrase.push(index);
+  return index != 0;
+}
+
 struct PrintPhrase
 {
   PrintPhrase(Dictionary const& dict, Phrase const& value)
@@ -123,17 +151,19 @@ private:
   std::string   m_word;
 };
 
-bool operator<<(Phrase& phrase, IndexStream::index_t index) {
-  phrase.push(index);
-  return index != 0;
-}
-
 bool operator<<(Phrase& phrase, IndexStream& stream) {
   return phrase << stream.get();
 }
 
 struct Statistics
 {
+  using Ptr = std::unique_ptr<Statistics>;
+
+  Statistics() = default;
+  Statistics(std::istream& stream)
+    : m_dictionary(stream)
+  {}
+
   void process(std::istream& stream) {
     IndexStream input(stream, m_dictionary);
     Phrase current;
@@ -170,6 +200,40 @@ private:
   table m_table;
 };
 
+Statistics::Ptr prepare(int argc, char const* argv[]) {
+  if (argc > 1) {
+    std::string param(argv[1]);
+    if (param == "-d") {
+      // dump sorted dictionary, read from stdin
+      Dictionary dict(std::cin);
+      std::vector<std::string> data;
+      data.reserve(dict.size());
+      dict.for_each([&data](std::string const& word) {
+        data.emplace_back(word);
+      });
+
+      std::sort(data.begin(), data.end()
+        , [](auto const& left, auto const& right) -> bool {
+          return right < left; // inverse
+      });
+
+      for (auto const& value : data)
+        std::cout << value << std::endl;
+
+      return nullptr;
+    } else {
+      // load sorted dictionary, read from file
+      std::ifstream stream(param);
+      if (!stream.good())
+        throw std::runtime_error("invalid dictionary file");
+
+      return std::make_unique<Statistics>(stream);
+    }
+  }
+  // default - simple 'as is'
+  return std::make_unique<Statistics>();
+}
+
 struct Result
 {
   Phrase phrase;
@@ -181,20 +245,23 @@ bool operator<(Result const& left, Result const& right) {
     : left.count > right.count;
 }
 
-int main()
+int main(int argc, char const* argv[])
 {
-  Statistics stat;
-  stat.process(std::cin);
+  Statistics::Ptr stat = prepare(argc, argv);
+  if (!stat)
+    return 0;
+  
+  stat->process(std::cin);
   
   std::vector<Result> data;
-  data.reserve(stat.size());
-  stat.for_each([&data](unsigned count, Phrase phrase) {
+  data.reserve(stat->size());
+  stat->for_each([&data](unsigned count, Phrase phrase) {
      data.emplace_back(Result{phrase, count});
   });
 
   std::sort(data.begin(), data.end());
   for (auto value : data) {
     std::cout << value.count
-      << ": " << print(stat.dictionary(), value.phrase) << std::endl;
+      << ": " << print(stat->dictionary(), value.phrase) << std::endl;
   }
 }
