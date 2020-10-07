@@ -59,7 +59,7 @@ private:
     return current;
   }
   dtable  m_dtable;
-  rtable  m_rtable;  
+  rtable  m_rtable;
   index_t m_count = 0;
 };
 
@@ -101,7 +101,7 @@ private:
     return (WSIZE * (SIZE - (i + 1)));
   }
   static constexpr uint64_t mask(unsigned i) {
-    return (value_t(1) << upshift(i)) - 1; 
+    return (value_t(1) << upshift(i)) - 1;
   }
   value_t m_value = 0;
 };
@@ -253,7 +253,7 @@ int main(int argc, char const* argv[])
     return 0;
 
   stat->process(std::cin);
-  
+
   std::vector<Result> data;
   data.reserve(stat->size());
   stat->for_each([&data](unsigned count, Phrase phrase) {
